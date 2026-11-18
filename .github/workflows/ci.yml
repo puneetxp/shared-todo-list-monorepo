@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: write
+
 jobs:
   docker-compose-verify:
     runs-on: ubuntu-latest
@@ -30,7 +33,7 @@ jobs:
         run: |
           docker compose ps
           for i in $(seq 1 30); do
-            if curl -fsS http://localhost:3001/api/health && curl -fsSI http://localhost:5173 >/dev/null; then
+            if curl -fsS http://localhost:3001/api/health && curl -fsS http://localhost:5173/api/health && curl -fsSI http://localhost:5173 >/dev/null; then
               echo "All Docker services are healthy!"
               docker exec shared_todo_db pg_isready -U postgres -d shared_todo
               curl -sS http://localhost:3001/api/health
@@ -40,6 +43,36 @@ jobs:
           done
           docker compose logs
           exit 1
+
+      - name: Run Playwright E2E tests & capture screenshots against Docker stack
+        env:
+          BASE_URL: http://localhost:5173
+          TEST_EMAIL: e2e-sample-1794999765782@mailinator.com
+          TEST_PASSWORD: SamplePass123!
+        run: |
+          npm install --no-save @playwright/test
+          npx playwright install --with-deps chromium
+          npx playwright test e2e/shared-todo.spec.ts --reporter=list,html
+
+      - name: Upload Playwright screenshots & report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots-and-report
+          path: |
+            e2e-*.png
+            playwright-report/
+            test-results/
+
+      - name: Push captured E2E screenshots to debug branch
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B debug
+          git add -f e2e-*.png
+          git commit -m "CI: update E2E screenshots from run ${{ github.run_id }}" || echo "No screenshot changes"
+          git push -f origin debug
 
       - name: Tear down Docker Compose stack
         if: always()
