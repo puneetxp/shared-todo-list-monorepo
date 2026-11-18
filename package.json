@@ -1,0 +1,24 @@
+{
+  "name": "shared-todo-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared To-Do List Monorepo (Vue 3 + Pinia + Vite, Fastify Serverless + PostgreSQL, Firebase Auth)",
+  "workspaces": [
+    "packages/backend",
+    "packages/frontend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:backend": "npm run dev --workspace=@shared-todo/backend",
+    "dev:frontend": "npm run dev --workspace=@shared-todo/frontend",
+    "build": "npm run build --workspaces --if-present",
+    "build:backend": "npm run build --workspace=@shared-todo/backend",
+    "build:frontend": "npm run build --workspace=@shared-todo/frontend",
+    "start:backend": "npm run start --workspace=@shared-todo/backend",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down -v"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

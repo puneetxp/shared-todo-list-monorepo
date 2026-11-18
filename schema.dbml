@@ -1,0 +1,47 @@
+Project shared_todo_list {
+  database_type: 'PostgreSQL'
+  Note: 'Database schema for the Shared To-Do List application'
+}
+
+Table users {
+  id uuid [pk, default: `gen_random_uuid()`, note: 'Primary key UUID']
+  firebase_uid varchar(128) [unique, not null, note: 'Firebase Authentication UID']
+  email varchar(255) [unique, not null, note: 'User email / login ID']
+  display_name varchar(100) [not null, note: 'User display name']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+
+  indexes {
+    firebase_uid [unique]
+    email [unique]
+  }
+}
+
+Table tasks {
+  id uuid [pk, default: `gen_random_uuid()`, note: 'Primary key UUID']
+  title varchar(255) [not null, note: 'Task title']
+  description text [default: '', note: 'Optional detailed task description']
+  completed boolean [not null, default: false, note: 'Completion state of the task']
+  owner_id uuid [not null, ref: > users.id, note: 'User who created the task']
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+
+  indexes {
+    owner_id
+    created_at
+  }
+}
+
+Table task_shares {
+  id uuid [pk, default: `gen_random_uuid()`, note: 'Primary key UUID']
+  task_id uuid [not null, ref: > tasks.id, note: 'Task being shared']
+  shared_with_user_id uuid [not null, ref: > users.id, note: 'User receiving access to the task']
+  shared_by_user_id uuid [not null, ref: > users.id, note: 'User who shared the task']
+  created_at timestamp [not null, default: `now()`]
+
+  indexes {
+    (task_id, shared_with_user_id) [unique, name: 'unique_task_user_share']
+    shared_with_user_id
+    task_id
+  }
+}

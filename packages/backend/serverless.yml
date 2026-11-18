@@ -1,0 +1,32 @@
+service: shared-todo-backend
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  environment:
+    DATABASE_URL: ${env:DATABASE_URL}
+    FIREBASE_PROJECT_ID: ${env:FIREBASE_PROJECT_ID, ''}
+    FIREBASE_CLIENT_EMAIL: ${env:FIREBASE_CLIENT_EMAIL, ''}
+    FIREBASE_PRIVATE_KEY: ${env:FIREBASE_PRIVATE_KEY, ''}
+
+functions:
+  authApi:
+    handler: dist/lambda.handler
+    events:
+      - httpApi:
+          path: /api/auth/{proxy+}
+          method: '*'
+      - httpApi:
+          path: /api/users
+          method: GET
+  tasksApi:
+    handler: dist/lambda.handler
+    events:
+      - httpApi:
+          path: /api/tasks
+          method: '*'
+      - httpApi:
+          path: /api/tasks/{proxy+}
+          method: '*'
