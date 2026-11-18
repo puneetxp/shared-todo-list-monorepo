@@ -60,6 +60,7 @@ jobs:
         with:
           name: e2e-screenshots-and-report
           path: |
+            screenshots/
             e2e-*.png
             playwright-report/
             test-results/
@@ -70,7 +71,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -B debug
-          git add -f e2e-*.png
+          git add -f screenshots/ e2e-*.png
           git commit -m "CI: update E2E screenshots from run ${{ github.run_id }}" || echo "No screenshot changes"
           git push -f origin debug
 

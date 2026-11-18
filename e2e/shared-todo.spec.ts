@@ -32,10 +32,12 @@ test.describe('Shared To-Do List E2E', () => {
     await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
 
     await page.screenshot({ path: 'e2e-login.png', fullPage: true });
+    await page.screenshot({ path: 'screenshots/01-login.png', fullPage: true });
 
     await page.getByRole('button', { name: 'Create Account' }).click();
     await expect(page.getByLabel('Display Name')).toBeVisible();
     await page.screenshot({ path: 'e2e-signup.png', fullPage: true });
+    await page.screenshot({ path: 'screenshots/02-signup.png', fullPage: true });
   });
 
   test('Authenticated Task CRUD + Filter + Share Modal flow (Google STORAGE_STATE or TEST_EMAIL/TEST_PASSWORD)', async ({
@@ -68,27 +70,37 @@ test.describe('Shared To-Do List E2E', () => {
 
     await expect(page.getByText(taskTitle)).toBeVisible();
     await page.screenshot({ path: 'e2e-taskboard.png', fullPage: true });
+    await page.screenshot({ path: 'screenshots/03-taskboard-created.png', fullPage: true });
 
     // Dropdown filter checks: All / My / Shared
     await page.locator('#taskFilterDropdown').selectOption('my');
     await expect(page.getByText(taskTitle)).toBeVisible();
+    await page.screenshot({ path: 'screenshots/04-filter-my-tasks.png', fullPage: true });
 
     await page.locator('#taskFilterDropdown').selectOption('shared');
     await expect(page.getByText(taskTitle)).not.toBeVisible();
+    await page.screenshot({ path: 'screenshots/05-filter-shared-tasks.png', fullPage: true });
 
     await page.locator('#taskFilterDropdown').selectOption('all');
     await expect(page.getByText(taskTitle)).toBeVisible();
 
-    // Share modal screenshot
+    // Toggle task completion checkbox
     const card = page.locator('.task-card', { hasText: taskTitle });
+    await card.locator('input[type="checkbox"]').check();
+    await expect(card.locator('input[type="checkbox"]')).toBeChecked();
+    await page.screenshot({ path: 'screenshots/06-task-completed-toggle.png', fullPage: true });
+
+    // Share modal screenshot
     await card.getByRole('button', { name: 'Share' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.screenshot({ path: 'e2e-share-modal.png', fullPage: true });
+    await page.screenshot({ path: 'screenshots/07-share-modal.png', fullPage: true });
     await page.getByRole('button', { name: 'Done' }).click();
 
     // Clean up test task
     await card.getByRole('button', { name: 'Delete' }).click();
     await expect(page.getByText(taskTitle)).not.toBeVisible();
+    await page.screenshot({ path: 'screenshots/08-after-delete.png', fullPage: true });
   });
 });
 
