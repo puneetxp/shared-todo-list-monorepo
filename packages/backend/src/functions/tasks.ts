@@ -145,6 +145,10 @@ export const tasksFunctionRoutes: FastifyPluginAsync<TasksRoutesOptions> = async
       const taskId = request.params.id;
       const { title, description, completed } = request.body || {};
 
+      if (title !== undefined && !title.trim()) {
+        return reply.code(400).send({ error: 'Task title cannot be empty' });
+      }
+
       const accessCheck = await pool.query(
         `SELECT t.id
          FROM tasks t

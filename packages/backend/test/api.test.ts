@@ -204,7 +204,15 @@ test('Full Auth Sync, Task CRUD, Filtering, and Sharing workflow', async () => {
   assert.equal(charlieAll.statusCode, 200);
   assert.equal(charlieAll.json().tasks.length, 0);
 
-  // 7. Bob updates task; Charlie is denied (404)
+  // 7. Bob updates task; Charlie is denied (404); empty title rejected (400)
+  const emptyTitleUpdate = await app.inject({
+    method: 'PUT',
+    url: `/api/tasks/${createdTask.id}`,
+    headers: { authorization: 'Bearer token-bob' },
+    payload: { title: '   ' },
+  });
+  assert.equal(emptyTitleUpdate.statusCode, 400);
+
   const bobUpdate = await app.inject({
     method: 'PUT',
     url: `/api/tasks/${createdTask.id}`,
