@@ -12,7 +12,7 @@ services:
       -c maintenance_work_mem=16MB
       -c max_connections=20
       -c wal_buffers=1MB
-    mem_limit: 128m
+    mem_limit: 256m
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -34,7 +34,7 @@ services:
       dockerfile: packages/backend/Dockerfile
     container_name: shared_todo_backend
     restart: unless-stopped
-    mem_limit: 128m
+    mem_limit: 256m
     depends_on:
       db:
         condition: service_healthy

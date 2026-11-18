@@ -24,7 +24,7 @@ jobs:
           npx eslint firestore.rules
 
       - name: Build and start Docker Compose stack
-        run: docker compose up --build -d
+        run: docker compose up --build -d || (docker compose logs && exit 1)
 
       - name: Wait for services and verify health
         run: |
