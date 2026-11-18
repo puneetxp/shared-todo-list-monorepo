@@ -23,6 +23,7 @@ ENV NODE_ENV=production
 ENV NODE_OPTIONS="--max-old-space-size=96"
 
 COPY --from=builder /app/package.json ./
+COPY firebase-applet-config.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/backend/package.json ./packages/backend/
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
