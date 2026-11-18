@@ -21,6 +21,7 @@ ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
 
 COPY package.json ./
 COPY tsconfig.base.json ./
+COPY firebase-applet-config.json ./
 COPY packages/frontend/package.json ./packages/frontend/
 COPY packages/frontend/tsconfig.json ./packages/frontend/
 COPY packages/frontend/vite.config.ts ./packages/frontend/

@@ -4,8 +4,8 @@ import { initializeDatabase } from './db.js';
 
 dotenv.config();
 
-const PORT = 3000;
-const HOST = '0.0.0.0';
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || '0.0.0.0';
 
 async function start() {
   const app = buildApp();

@@ -1,0 +1,46 @@
+name: Docker & Tests CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  docker-compose-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies & run unit/integration tests
+        run: |
+          npm ci || npm install
+          npm run build
+          npm test
+          npx eslint firestore.rules
+
+      - name: Build and start Docker Compose stack
+        run: docker compose up --build -d
+
+      - name: Wait for services and verify health
+        run: |
+          docker compose ps
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3001/api/health && curl -fsSI http://localhost:5173 >/dev/null; then
+              echo "All Docker services are healthy!"
+              docker exec shared_todo_db pg_isready -U postgres -d shared_todo
+              curl -sS http://localhost:3001/api/health
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs
+          exit 1
+
+      - name: Tear down Docker Compose stack
+        if: always()
+        run: docker compose down -v
