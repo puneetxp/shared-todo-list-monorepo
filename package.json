@@ -15,6 +15,7 @@
     "build:frontend": "npm run build --workspace=@shared-todo/frontend",
     "start": "npm run start --workspace=@shared-todo/backend",
     "start:backend": "npm run start --workspace=@shared-todo/backend",
+    "test": "npm test --workspace=@shared-todo/backend",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down -v"
   },

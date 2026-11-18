@@ -1,14 +1,26 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { pool } from '../db.js';
-import { authenticateRequest, verifyBearerToken } from '../auth.js';
+import {
+  createAuthenticateRequest,
+  verifyBearerToken,
+  type TokenVerifier,
+} from '../auth.js';
 
 interface SyncBody {
   displayName?: string;
 }
 
-export const authFunctionRoutes: FastifyPluginAsync = async (
-  fastify: FastifyInstance
+export interface AuthRoutesOptions {
+  verifyToken?: TokenVerifier;
+}
+
+export const authFunctionRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (
+  fastify: FastifyInstance,
+  options
 ) => {
+  const verifyToken = options.verifyToken ?? verifyBearerToken;
+  const authenticate = createAuthenticateRequest(verifyToken);
+
   /**
    * POST /api/auth/sync
    * Serverless function handler for Login/Signup user sync & provisioning in PostgreSQL.
@@ -21,7 +33,7 @@ export const authFunctionRoutes: FastifyPluginAsync = async (
 
     const token = authHeader.slice('Bearer '.length).trim();
     try {
-      const identity = await verifyBearerToken(token);
+      const identity = await verifyToken(token);
       const preferredName =
         request.body?.displayName?.trim() ||
         identity.name ||
@@ -55,7 +67,7 @@ export const authFunctionRoutes: FastifyPluginAsync = async (
    */
   fastify.get(
     '/users',
-    { preHandler: [authenticateRequest] },
+    { preHandler: [authenticate] },
     async (request, reply) => {
       const currentUser = request.user!;
       const result = await pool.query(

@@ -1,6 +1,10 @@
 import { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { pool } from '../db.js';
-import { authenticateRequest } from '../auth.js';
+import {
+  createAuthenticateRequest,
+  verifyBearerToken,
+  type TokenVerifier,
+} from '../auth.js';
 
 interface TaskFilterQuery {
   filter?: 'all' | 'my' | 'shared';
@@ -21,10 +25,18 @@ interface ShareTaskBody {
   emailOrUserId: string;
 }
 
-export const tasksFunctionRoutes: FastifyPluginAsync = async (
-  fastify: FastifyInstance
+export interface TasksRoutesOptions {
+  verifyToken?: TokenVerifier;
+}
+
+export const tasksFunctionRoutes: FastifyPluginAsync<TasksRoutesOptions> = async (
+  fastify: FastifyInstance,
+  options
 ) => {
-  fastify.addHook('preHandler', authenticateRequest);
+  const authenticate = createAuthenticateRequest(
+    options.verifyToken ?? verifyBearerToken
+  );
+  fastify.addHook('preHandler', authenticate);
 
   /**
    * GET /api/tasks?filter=all|my|shared

@@ -105,6 +105,8 @@ interface DecodedTokenIdentity {
   name?: string;
 }
 
+export type TokenVerifier = (token: string) => Promise<DecodedTokenIdentity>;
+
 export async function verifyBearerToken(
   token: string
 ): Promise<DecodedTokenIdentity> {
@@ -140,45 +142,51 @@ export async function verifyBearerToken(
   throw new Error('Invalid or unverifiable authentication token');
 }
 
-export async function authenticateRequest(
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
-  const authHeader = request.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    reply.code(401).send({ error: 'Missing or invalid Authorization header' });
-    return;
-  }
+export function createAuthenticateRequest(
+  verifyToken: TokenVerifier = verifyBearerToken
+) {
+  return async function authenticateWithVerifier(
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): Promise<void> {
+    const authHeader = request.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      reply.code(401).send({ error: 'Missing or invalid Authorization header' });
+      return;
+    }
 
-  const token = authHeader.slice('Bearer '.length).trim();
-  try {
-    const identity = await verifyBearerToken(token);
-    const displayName =
-      identity.name || identity.email.split('@')[0] || 'User';
+    const token = authHeader.slice('Bearer '.length).trim();
+    try {
+      const identity = await verifyToken(token);
+      const displayName =
+        identity.name || identity.email.split('@')[0] || 'User';
 
-    const result = await pool.query<{
-      id: string;
-      firebase_uid: string;
-      email: string;
-      display_name: string;
-    }>(
-      `INSERT INTO users (firebase_uid, email, display_name)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (firebase_uid)
-       DO UPDATE SET email = EXCLUDED.email, updated_at = NOW()
-       RETURNING id, firebase_uid, email, display_name`,
-      [identity.uid, identity.email, displayName]
-    );
+      const result = await pool.query<{
+        id: string;
+        firebase_uid: string;
+        email: string;
+        display_name: string;
+      }>(
+        `INSERT INTO users (firebase_uid, email, display_name)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (firebase_uid)
+         DO UPDATE SET email = EXCLUDED.email, updated_at = NOW()
+         RETURNING id, firebase_uid, email, display_name`,
+        [identity.uid, identity.email, displayName]
+      );
 
-    const row = result.rows[0];
-    request.user = {
-      id: row.id,
-      firebaseUid: row.firebase_uid,
-      email: row.email,
-      displayName: row.display_name,
-    };
-  } catch (err) {
-    request.log.error(err, 'Authentication failed');
-    reply.code(401).send({ error: 'Unauthorized: invalid token' });
-  }
+      const row = result.rows[0];
+      request.user = {
+        id: row.id,
+        firebaseUid: row.firebase_uid,
+        email: row.email,
+        displayName: row.display_name,
+      };
+    } catch (err) {
+      request.log.error(err, 'Authentication failed');
+      reply.code(401).send({ error: 'Unauthorized: invalid token' });
+    }
+  };
 }
+
+export const authenticateRequest = createAuthenticateRequest(verifyBearerToken);

@@ -8,8 +8,22 @@ import {
   GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
+  type User as FirebaseUser,
 } from 'firebase/auth';
-import { firebaseAuth, isFirebaseConfigured } from '../firebase';
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import {
+  firebaseAuth,
+  firestoreDb,
+  isFirebaseConfigured,
+  OperationType,
+  handleFirestoreError,
+} from '../firebase';
 import type { UserProfile } from '../types';
 
 const API_BASE_URL =
@@ -28,6 +42,75 @@ const LOCAL_SESSION_KEY = 'shared_todo_local_session';
 function normalizeEmailId(identifier: string): string {
   const trimmed = identifier.trim().toLowerCase();
   return trimmed.includes('@') ? trimmed : `${trimmed}@sharedtodo.app`;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value.trim().toLowerCase());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function syncUserToFirestore(
+  fbUser: FirebaseUser,
+  preferredName?: string
+): Promise<void> {
+  if (!firestoreDb || !fbUser.emailVerified || !fbUser.email) {
+    return;
+  }
+
+  const email = fbUser.email.trim().toLowerCase().slice(0, 255);
+  const displayName = (
+    preferredName?.trim() ||
+    fbUser.displayName?.trim() ||
+    email.split('@')[0] ||
+    'User'
+  ).slice(0, 100);
+
+  const userPath = `users/${fbUser.uid}`;
+  const userRef = doc(firestoreDb, 'users', fbUser.uid);
+  try {
+    const existingSnap = await getDoc(userRef);
+    if (existingSnap.exists()) {
+      await updateDoc(userRef, {
+        email,
+        displayName,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(userRef, {
+        uid: fbUser.uid,
+        email,
+        displayName,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, userPath);
+  }
+
+  const emailHash = await sha256Hex(email);
+  const lookupPath = `emailLookup/${emailHash}`;
+  const lookupRef = doc(firestoreDb, 'emailLookup', emailHash);
+  try {
+    const existingLookup = await getDoc(lookupRef);
+    if (existingLookup.exists()) {
+      await updateDoc(lookupRef, {
+        displayName,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(lookupRef, {
+        uid: fbUser.uid,
+        displayName,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, lookupPath);
+  }
 }
 
 function createLocalToken(account: {
@@ -111,6 +194,9 @@ export const useAuthStore = defineStore('auth', () => {
               try {
                 const idToken = await fbUser.getIdToken();
                 await syncWithBackend(idToken, fbUser.displayName || undefined);
+                await syncUserToFirestore(fbUser, fbUser.displayName || undefined).catch((err) => {
+                  console.warn('Firestore profile sync skipped:', err);
+                });
               } catch (err) {
                 console.error('Auth sync error:', err);
                 user.value = null;
@@ -228,6 +314,12 @@ export const useAuthStore = defineStore('auth', () => {
           idToken,
           credential.user.displayName || undefined
         );
+        await syncUserToFirestore(
+          credential.user,
+          credential.user.displayName || undefined
+        ).catch((err) => {
+          console.warn('Firestore profile sync skipped:', err);
+        });
         return;
       }
 
@@ -291,6 +383,12 @@ export const useAuthStore = defineStore('auth', () => {
         idToken,
         credential.user.displayName || undefined
       );
+      await syncUserToFirestore(
+        credential.user,
+        credential.user.displayName || undefined
+      ).catch((err) => {
+        console.warn('Firestore profile sync skipped:', err);
+      });
     } catch (err: unknown) {
       const msg = formatFirebaseAuthError(err, 'Google sign-in failed');
       error.value = msg;

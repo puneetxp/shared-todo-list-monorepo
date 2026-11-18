@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { authFunctionRoutes } from './functions/auth.js';
 import { tasksFunctionRoutes } from './functions/tasks.js';
+import type { TokenVerifier } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,9 +28,14 @@ const MIME_TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-export function buildApp(): FastifyInstance {
+export interface BuildAppOptions {
+  verifyToken?: TokenVerifier;
+  logger?: boolean;
+}
+
+export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({
-    logger: true,
+    logger: options.logger ?? true,
   });
 
   const corsOrigin =
@@ -48,8 +54,14 @@ export function buildApp(): FastifyInstance {
     timestamp: new Date().toISOString(),
   }));
 
-  app.register(authFunctionRoutes, { prefix: '/api' });
-  app.register(tasksFunctionRoutes, { prefix: '/api' });
+  app.register(authFunctionRoutes, {
+    prefix: '/api',
+    verifyToken: options.verifyToken,
+  });
+  app.register(tasksFunctionRoutes, {
+    prefix: '/api',
+    verifyToken: options.verifyToken,
+  });
 
   app.setNotFoundHandler(async (request, reply) => {
     if (request.url.startsWith('/api')) {
