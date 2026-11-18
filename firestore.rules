@@ -1,0 +1,224 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- Validation Blueprints ---
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'createdAt', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 255
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidEmailLookup(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'updatedAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 && data.uid == request.auth.uid
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll([
+          'title',
+          'description',
+          'completed',
+          'ownerId',
+          'ownerName',
+          'sharedWithUids',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'title',
+          'description',
+          'completed',
+          'ownerId',
+          'ownerName',
+          'sharedWithUids',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 255
+        && data.description is string && data.description.size() <= 2000
+        && data.completed is bool
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerName is string && data.ownerName.size() >= 1 && data.ownerName.size() <= 100
+        && data.sharedWithUids is list
+        && data.sharedWithUids.size() <= 20
+        && (data.sharedWithUids.size() == 0 || data.sharedWithUids[0] is string)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTaskShare(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'sharedBy', 'createdAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'sharedBy', 'createdAt'])
+        && data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100
+        && data.sharedBy is string && data.sharedBy.size() >= 1 && data.sharedBy.size() <= 128 && data.sharedBy == request.auth.uid
+        && data.createdAt is timestamp;
+    }
+
+    // --- Collection: /users/{userId} (Strict PII Isolation) ---
+    match /users/{userId} {
+      allow get: if isOwner(userId) && isValidId(userId);
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isOwner(userId)
+        && isValidId(userId)
+        && isValidUser(incoming())
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'displayName', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // --- Collection: /emailLookup/{emailHash} (Non-PII Exact Lookup) ---
+    match /emailLookup/{emailHash} {
+      allow get: if isSignedIn() && isValidId(emailHash) && emailHash.size() == 64;
+      allow list: if false;
+      allow create: if isVerifiedUser()
+        && isValidId(emailHash)
+        && emailHash.size() == 64
+        && isValidEmailLookup(incoming())
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(emailHash)
+        && emailHash.size() == 64
+        && existing().uid == request.auth.uid
+        && isValidEmailLookup(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']);
+      allow delete: if isVerifiedUser()
+        && isValidId(emailHash)
+        && emailHash.size() == 64
+        && existing().uid == request.auth.uid;
+    }
+
+    // --- Collection: /tasks/{taskId} ---
+    match /tasks/{taskId} {
+      allow get: if isSignedIn()
+        && isValidId(taskId)
+        && (existing().ownerId == request.auth.uid || request.auth.uid in existing().sharedWithUids);
+      allow list: if isSignedIn()
+        && (existing().ownerId == request.auth.uid || request.auth.uid in existing().sharedWithUids);
+      allow create: if isVerifiedUser()
+        && isValidId(taskId)
+        && isValidTask(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().sharedWithUids.size() == 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isVerifiedUser()
+        && isValidId(taskId)
+        && isValidTask(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().ownerName == existing().ownerName
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1: Owner edits task fields
+          (existing().ownerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'completed', 'updatedAt'])) ||
+          // Tier 1: Owner manages shared collaborators
+          (existing().ownerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['sharedWithUids', 'updatedAt'])) ||
+          // Tier 2: Collaborator edits task fields
+          (request.auth.uid in existing().sharedWithUids
+            && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'completed', 'updatedAt'])) ||
+          // Tier 2: Collaborator manages sharing
+          (request.auth.uid in existing().sharedWithUids
+            && incoming().diff(existing()).affectedKeys().hasOnly(['sharedWithUids', 'updatedAt']))
+        );
+      allow delete: if isVerifiedUser()
+        && isValidId(taskId)
+        && existing().ownerId == request.auth.uid;
+
+      // --- Subcollection: /tasks/{taskId}/shares/{shareUserId} (Master Gate + Atomicity) ---
+      match /shares/{shareUserId} {
+        allow get: if isSignedIn()
+          && isValidId(taskId)
+          && isValidId(shareUserId)
+          && (
+            get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid ||
+            request.auth.uid in get(/databases/$(database)/documents/tasks/$(taskId)).data.sharedWithUids
+          );
+        allow list: if false;
+        allow create: if isVerifiedUser()
+          && isValidId(taskId)
+          && isValidId(shareUserId)
+          && isValidTaskShare(incoming())
+          && incoming().uid == shareUserId
+          && incoming().createdAt == request.time
+          && exists(/databases/$(database)/documents/tasks/$(taskId))
+          && (
+            get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid ||
+            request.auth.uid in get(/databases/$(database)/documents/tasks/$(taskId)).data.sharedWithUids
+          )
+          && shareUserId != get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId
+          && shareUserId in getAfter(/databases/$(database)/documents/tasks/$(taskId)).data.sharedWithUids;
+        allow update: if false;
+        allow delete: if isVerifiedUser()
+          && isValidId(taskId)
+          && isValidId(shareUserId)
+          && exists(/databases/$(database)/documents/tasks/$(taskId))
+          && (
+            get(/databases/$(database)/documents/tasks/$(taskId)).data.ownerId == request.auth.uid ||
+            request.auth.uid == shareUserId
+          )
+          && (
+            !existsAfter(/databases/$(database)/documents/tasks/$(taskId)) ||
+            !(shareUserId in getAfter(/databases/$(database)/documents/tasks/$(taskId)).data.sharedWithUids)
+          );
+      }
+    }
+
+    // --- Connection Check Document ---
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+  }
+}

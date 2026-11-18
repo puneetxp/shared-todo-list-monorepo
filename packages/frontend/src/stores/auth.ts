@@ -4,6 +4,8 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
@@ -11,7 +13,7 @@ import { firebaseAuth, isFirebaseConfigured } from '../firebase';
 import type { UserProfile } from '../types';
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api';
+  import.meta.env.VITE_API_BASE_URL || '/api';
 
 interface LocalStoredAccount {
   uid: string;
@@ -39,6 +41,28 @@ function createLocalToken(account: {
     displayName: account.displayName,
   });
   return `local:${btoa(unescape(encodeURIComponent(payload)))}`;
+}
+
+function formatFirebaseAuthError(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = String((err as { code: unknown }).code);
+    if (code === 'auth/operation-not-allowed') {
+      return 'Email/Password sign-in is not enabled in the Firebase Console yet. Enable it under Authentication -> Sign-in method, or click "Continue with Google".';
+    }
+    if (code === 'auth/email-already-in-use') {
+      return 'An account with this email already exists.';
+    }
+    if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+      return 'Invalid email / user ID or password.';
+    }
+    if (code === 'auth/weak-password') {
+      return 'Password must be at least 6 characters long.';
+    }
+    if (code === 'auth/popup-closed-by-user') {
+      return 'Google sign-in popup was closed before completing login.';
+    }
+  }
+  return err instanceof Error ? err.message : fallback;
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -160,7 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       const newAccount: LocalStoredAccount = {
-        uid: `fb_${ email.replace(/[^a-z0-9]/g, '_') }`,
+        uid: `fb_${email.replace(/[^a-z0-9]/g, '_')}`,
         email,
         password,
         displayName: cleanName,
@@ -179,9 +203,9 @@ export const useAuthStore = defineStore('auth', () => {
       const localToken = createLocalToken(newAccount);
       await syncWithBackend(localToken, cleanName);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Registration failed';
+      const msg = formatFirebaseAuthError(err, 'Registration failed');
       error.value = msg;
-      throw err;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -222,7 +246,6 @@ export const useAuthStore = defineStore('auth', () => {
       }
 
       if (!account) {
-        // If logging in from a different browser tab or fresh localStorage against an existing DB user
         account = {
           uid: `fb_${email.replace(/[^a-z0-9]/g, '_')}`,
           email,
@@ -245,9 +268,33 @@ export const useAuthStore = defineStore('auth', () => {
       const localToken = createLocalToken(account);
       await syncWithBackend(localToken, account.displayName);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Login failed';
+      const msg = formatFirebaseAuthError(err, 'Login failed');
       error.value = msg;
-      throw err;
+      throw new Error(msg);
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function loginWithGoogle(): Promise<void> {
+    if (!isFirebaseConfigured || !firebaseAuth) {
+      throw new Error('Firebase is not configured for Google sign-in.');
+    }
+
+    error.value = null;
+    loading.value = true;
+    try {
+      const provider = new GoogleAuthProvider();
+      const credential = await signInWithPopup(firebaseAuth, provider);
+      const idToken = await credential.user.getIdToken();
+      await syncWithBackend(
+        idToken,
+        credential.user.displayName || undefined
+      );
+    } catch (err: unknown) {
+      const msg = formatFirebaseAuthError(err, 'Google sign-in failed');
+      error.value = msg;
+      throw new Error(msg);
     } finally {
       loading.value = false;
     }
@@ -271,6 +318,7 @@ export const useAuthStore = defineStore('auth', () => {
     initializeAuth,
     register,
     login,
+    loginWithGoogle,
     logout,
   };
 });

@@ -1,5 +1,9 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
-import admin from 'firebase-admin';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { initializeApp, getApps, getApp, cert } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { pool } from './db.js';
 
 export interface AuthenticatedUser {
@@ -17,28 +21,48 @@ declare module 'fastify' {
 
 let firebaseInitialized = false;
 
+function readAppletProjectId(): string | undefined {
+  try {
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const configPath = path.resolve(
+      __dirname,
+      '../../../firebase-applet-config.json'
+    );
+    if (!fs.existsSync(configPath)) return undefined;
+    const parsed = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+      projectId?: string;
+    };
+    if (parsed.projectId && parsed.projectId !== 'remixed-project-id') {
+      return parsed.projectId;
+    }
+  } catch {
+    // ignore invalid config file
+  }
+  return undefined;
+}
+
 function initFirebaseAdmin(): boolean {
   if (firebaseInitialized) return true;
-  if (admin.apps.length > 0) {
+  if (getApps().length > 0) {
     firebaseInitialized = true;
     return true;
   }
 
-  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const envProjectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
   const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
   if (
-    projectId &&
+    envProjectId &&
     clientEmail &&
     privateKey &&
-    projectId !== 'your-firebase-project-id' &&
+    envProjectId !== 'your-firebase-project-id' &&
     !privateKey.includes('YOUR_PRIVATE_KEY')
   ) {
     try {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId,
+      initializeApp({
+        credential: cert({
+          projectId: envProjectId,
           clientEmail,
           privateKey,
         }),
@@ -46,9 +70,32 @@ function initFirebaseAdmin(): boolean {
       firebaseInitialized = true;
       return true;
     } catch (err) {
-      console.warn('Firebase Admin initialization failed, falling back to token payload decoding:', err);
+      console.warn(
+        'Firebase Admin service-account init failed, checking projectId-only verification:',
+        err
+      );
     }
   }
+
+  const projectId =
+    (envProjectId && envProjectId !== 'your-firebase-project-id'
+      ? envProjectId
+      : undefined) || readAppletProjectId();
+
+  if (projectId) {
+    try {
+      if (getApps().length === 0) {
+        initializeApp({ projectId });
+      } else {
+        getApp();
+      }
+      firebaseInitialized = true;
+      return true;
+    } catch (err) {
+      console.warn('Firebase Admin projectId initialization failed:', err);
+    }
+  }
+
   return false;
 }
 
@@ -58,9 +105,11 @@ interface DecodedTokenIdentity {
   name?: string;
 }
 
-export async function verifyBearerToken(token: string): Promise<DecodedTokenIdentity> {
+export async function verifyBearerToken(
+  token: string
+): Promise<DecodedTokenIdentity> {
   if (initFirebaseAdmin()) {
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await getAuth().verifyIdToken(token);
     return {
       uid: decoded.uid,
       email: (decoded.email || `${decoded.uid}@user.local`).toLowerCase(),
@@ -68,10 +117,16 @@ export async function verifyBearerToken(token: string): Promise<DecodedTokenIden
     };
   }
 
-  // Fallback for Firebase client JWTs or local evaluation tokens when Admin service account is not configured
+  // Fallback for local evaluation tokens when Firebase is not configured
   if (token.startsWith('local:')) {
-    const raw = Buffer.from(token.slice('local:'.length), 'base64').toString('utf8');
-    const parsed = JSON.parse(raw) as { uid: string; email: string; displayName?: string };
+    const raw = Buffer.from(token.slice('local:'.length), 'base64').toString(
+      'utf8'
+    );
+    const parsed = JSON.parse(raw) as {
+      uid: string;
+      email: string;
+      displayName?: string;
+    };
     if (!parsed.uid || !parsed.email) {
       throw new Error('Invalid local auth token');
     }
@@ -80,26 +135,6 @@ export async function verifyBearerToken(token: string): Promise<DecodedTokenIden
       email: parsed.email.toLowerCase(),
       name: parsed.displayName,
     };
-  }
-
-  const parts = token.split('.');
-  if (parts.length === 3) {
-    const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
-    const payload = JSON.parse(payloadJson) as {
-      user_id?: string;
-      sub?: string;
-      email?: string;
-      name?: string;
-    };
-    const uid = payload.user_id || payload.sub;
-    const email = payload.email;
-    if (uid && email) {
-      return {
-        uid,
-        email: email.toLowerCase(),
-        name: payload.name,
-      };
-    }
   }
 
   throw new Error('Invalid or unverifiable authentication token');

@@ -8,16 +8,24 @@ dotenv.config();
 
 const { Pool } = pg;
 
-const pgPool = new Pool({
-  connectionString:
-    process.env.DATABASE_URL ||
-    'postgresql://postgres:postgres@localhost:5432/shared_todo',
-  max: Number(process.env.PG_MAX_POOL || 5),
-  idleTimeoutMillis: 10000,
-  connectionTimeoutMillis: 3000,
-});
+let pgPool: pg.Pool | null = null;
+try {
+  if (process.env.DATABASE_URL) {
+    pgPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      max: Number(process.env.PG_MAX_POOL || 5),
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 3000,
+    });
+    pgPool.on('error', (err) => {
+      console.warn('PostgreSQL pool error:', err.message);
+    });
+  }
+} catch {
+  pgPool = null;
+}
 
-let usingFallbackStore = false;
+let usingFallbackStore = !pgPool;
 
 interface UserRow {
   id: string;
@@ -376,7 +384,7 @@ export const pool = {
     text: string,
     values?: unknown[]
   ): Promise<{ rows: T[]; rowCount: number | null }> {
-    if (usingFallbackStore) {
+    if (usingFallbackStore || !pgPool) {
       return executeFallbackQuery<T>(text, values);
     }
     return pgPool.query<T>(text, values);
@@ -384,6 +392,13 @@ export const pool = {
 };
 
 export async function initializeDatabase(): Promise<void> {
+  if (!pgPool) {
+    usingFallbackStore = true;
+    console.warn(
+      'DATABASE_URL not set — using local file store (.local-db.json).'
+    );
+    return;
+  }
   try {
     const client = await pgPool.connect();
     try {

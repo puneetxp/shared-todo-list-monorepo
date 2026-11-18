@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useAuthStore } from '../stores/auth';
+import { isFirebaseConfigured } from '../firebase';
 
 const authStore = useAuthStore();
 
@@ -38,6 +39,19 @@ async function handleSubmit() {
   } catch (err: unknown) {
     localError.value =
       err instanceof Error ? err.message : 'Authentication failed';
+  } finally {
+    submitting.value = false;
+  }
+}
+
+async function handleGoogleSignIn() {
+  localError.value = null;
+  submitting.value = true;
+  try {
+    await authStore.loginWithGoogle();
+  } catch (err: unknown) {
+    localError.value =
+      err instanceof Error ? err.message : 'Google sign-in failed';
   } finally {
     submitting.value = false;
   }
@@ -126,6 +140,18 @@ async function handleSubmit() {
           }}
         </button>
       </form>
+
+      <template v-if="isFirebaseConfigured">
+        <div class="auth-divider"><span>or</span></div>
+        <button
+          type="button"
+          class="btn-google full-width"
+          :disabled="submitting"
+          @click="handleGoogleSignIn"
+        >
+          Continue with Google
+        </button>
+      </template>
 
       <div class="auth-footer">
         <span>
