@@ -7,7 +7,7 @@ services:
     command: >
       postgres
       -c shared_buffers=16MB
-      -c effect_cache_size=32MB
+      -c effective_cache_size=32MB
       -c work_mem=2MB
       -c maintenance_work_mem=16MB
       -c max_connections=20
