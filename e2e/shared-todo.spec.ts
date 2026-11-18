@@ -22,7 +22,7 @@ test.describe('Shared To-Do List E2E', () => {
   test('Login screen renders Firebase Auth Email/Password + Google Sign-In', async ({ page }) => {
     test.skip(Boolean(process.env.STORAGE_STATE), 'Skipped when running with saved Google STORAGE_STATE');
 
-    await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
 
     await expect(page.getByRole('heading', { name: 'Shared To-Do List' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Login' })).toBeVisible();
@@ -49,7 +49,7 @@ test.describe('Shared To-Do List E2E', () => {
       'Provide STORAGE_STATE (saved Google login) or TEST_EMAIL & TEST_PASSWORD'
     );
 
-    await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
 
     if (!storageState && email && password) {
       await page.getByLabel('User ID or Email').fill(email);
